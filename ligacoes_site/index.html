@@ -1,0 +1,183 @@
+
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <title>Gráfico de Ligações</title>
+  <script type="text/javascript" src="https://www.gstatic.com/charts/loader.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 20px;
+    }
+    #total {
+      font-size: 20px;
+      margin-bottom: 10px;
+    }
+    #last-updated {
+      margin-bottom: 20px;
+      color: #555;
+      font-size: 14px;
+    }
+    #chart_div {
+      width: 100%;
+      max-width: 800px;
+      height: 500px;
+    }
+    #empresa, button {
+      margin-bottom: 10px;
+      font-size: 16px;
+      padding: 5px 12px;
+    }
+    #buttons {
+      margin-bottom: 20px;
+    }
+  </style>
+</head>
+<body>
+  <h1>Ligações por Colaborador</h1>
+
+  <label for="empresa">Selecione a Empresa:</label>
+  <select id="empresa">
+    <option value="Todos">Todos</option>
+    <option value="Dataponto">Dataponto</option>
+    <option value="REPRelogios">REP Relógios</option>
+  </select>
+
+  <div id="buttons">
+    <button id="btnAtualizar">🔄 Atualizar agora</button>
+    <button id="btnExportar">📸 Exportar como PNG</button>
+  </div>
+
+  <div id="total">Total de ligações: <strong>...</strong></div>
+  <div id="last-updated"></div>
+  <div id="chart_div"></div>
+
+  <script>
+    const apiKey = 'AIzaSyDbyuDxEW3HpXvjdTC73XneMNPgTVGtDC4';
+    const spreadsheetId = '16qXfZz08Wk9Hfxt_feiqBPV4tZydV3ruawfcKmy-8L4';
+
+    const empresaSelect = document.getElementById('empresa');
+    const btnAtualizar = document.getElementById('btnAtualizar');
+    const btnExportar = document.getElementById('btnExportar');
+
+    let chart;
+    let chartData;
+    let dadosAnteriores = null;
+
+    empresaSelect.addEventListener('change', () => carregarDados(empresaSelect.value));
+    btnAtualizar.addEventListener('click', () => carregarDados(empresaSelect.value));
+    btnExportar.addEventListener('click', exportarGrafico);
+
+    function carregarDados(sheetName) {
+      const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${sheetName}?key=${apiKey}`;
+
+      fetch(url)
+        .then(response => response.json())
+        .then(data => {
+          if (!data.values || data.values.length < 2) {
+            document.getElementById('chart_div').innerHTML = '<p>Nenhum dado encontrado para gerar o gráfico.</p>';
+            document.getElementById('total').innerHTML = '';
+            return;
+          }
+
+          const rows = data.values.slice(1);
+          let total = 0;
+          const novaTabela = [['Nome', 'Ligações', { role: 'annotation' }]];
+
+          rows.forEach(row => {
+            const nome = row[0];
+            const ligacoes = parseInt(row[1]) || 0;
+            total += ligacoes;
+            novaTabela.push([nome, ligacoes, ligacoes.toString()]);
+          });
+
+          const jsonNovo = JSON.stringify(novaTabela);
+          const jsonAnterior = JSON.stringify(dadosAnteriores);
+
+          if (jsonNovo !== jsonAnterior) {
+            dadosAnteriores = novaTabela;
+            document.getElementById('total').innerHTML = `Total de ligações: <strong>${total}</strong>`;
+
+            const agora = new Date();
+            const formatado = agora.toLocaleString('pt-BR', {
+              day: '2-digit', month: '2-digit', year: 'numeric',
+              hour: '2-digit', minute: '2-digit'
+            });
+            document.getElementById('last-updated').innerText = `🔄 Atualizado por último em: ${formatado}`;
+
+            google.charts.load('current', { packages: ['corechart'] });
+            google.charts.setOnLoadCallback(() => drawChart(novaTabela));
+          }
+        })
+        .catch(error => {
+          console.error('Erro ao carregar os dados:', error);
+          document.getElementById('chart_div').innerHTML = '<p>Erro ao carregar a planilha. Verifique as permissões.</p>';
+        });
+    }
+
+    function drawChart(dataArray) {
+      const data = google.visualization.arrayToDataTable(dataArray);
+      const options = {
+        title: 'Ligações por Colaborador',
+        legend: { position: 'none' },
+        annotations: {
+          alwaysOutside: true,
+          textStyle: {
+            fontSize: 12,
+            color: '#000',
+          },
+        },
+        vAxis: { title: 'Quantidade de ligações', minValue: 0 },
+        hAxis: {
+          title: 'Colaborador',
+          slantedText: true,
+          slantedTextAngle: 30,
+          textStyle: { fontSize: 12 }
+        },
+        bar: { groupWidth: '60%' },
+        colors: ['#0078d7']
+      };
+
+      chart = new google.visualization.ColumnChart(document.getElementById('chart_div'));
+      chart.draw(data, options);
+    }
+
+    function exportarGrafico() {
+      if (!chart) {
+        alert('Gráfico ainda não carregado.');
+        return;
+      }
+      const svg = document.querySelector('#chart_div svg');
+      if (!svg) {
+        alert('SVG do gráfico não encontrado.');
+        return;
+      }
+      const svgData = new XMLSerializer().serializeToString(svg);
+      const canvas = document.createElement('canvas');
+      canvas.width = 800;
+      canvas.height = 500;
+      const ctx = canvas.getContext('2d');
+      const img = new Image();
+      const svgBlob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
+      const url = URL.createObjectURL(svgBlob);
+
+      img.onload = () => {
+        ctx.drawImage(img, 0, 0);
+        URL.revokeObjectURL(url);
+        const imgURI = canvas.toDataURL('image/png').replace('image/png', 'image/octet-stream');
+        const a = document.createElement('a');
+        a.download = 'grafico_ligacoes.png';
+        a.href = imgURI;
+        a.click();
+      };
+      img.onerror = () => {
+        alert('Erro ao carregar a imagem para exportação.');
+      }
+      img.src = url;
+    }
+
+    carregarDados(empresaSelect.value);
+  </script>
+</body>
+</html>
